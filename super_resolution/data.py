@@ -1,18 +1,18 @@
 from os.path import exists, join, basename
 from os import makedirs, remove
 from six.moves import urllib
-import tarfile
+import zipfile
 from torchvision.transforms import Compose, CenterCrop, ToTensor, Resize
 
 from dataset import DatasetFromFolder
 
 
 def download_bsd300(dest="dataset"):
-    output_image_dir = join(dest, "BSDS300/images")
+    output_image_dir = join(dest, "DIV2K_train_LR_difficult/")
 
     if not exists(output_image_dir):
         makedirs(dest)
-        url = "http://www2.eecs.berkeley.edu/Research/Projects/CS/vision/bsds/BSDS300-images.tgz"
+        url = "http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_LR_difficult.zip"
         print("downloading url ", url)
 
         data = urllib.request.urlopen(url)
@@ -22,9 +22,8 @@ def download_bsd300(dest="dataset"):
             f.write(data.read())
 
         print("Extracting data")
-        with tarfile.open(file_path) as tar:
-            for item in tar:
-                tar.extract(item, dest)
+        with zipfile.ZipFile(file_path) as tar:
+            tar.extractall(dest)
 
         remove(file_path)
 
@@ -52,7 +51,7 @@ def target_transform(crop_size):
 
 def get_training_set(upscale_factor):
     root_dir = download_bsd300()
-    train_dir = join(root_dir, "train")
+    train_dir = join(root_dir, "")
     crop_size = calculate_valid_crop_size(256, upscale_factor)
 
     return DatasetFromFolder(train_dir,
@@ -62,7 +61,7 @@ def get_training_set(upscale_factor):
 
 def get_test_set(upscale_factor):
     root_dir = download_bsd300()
-    test_dir = join(root_dir, "test")
+    test_dir = join(root_dir, "")
     crop_size = calculate_valid_crop_size(256, upscale_factor)
 
     return DatasetFromFolder(test_dir,

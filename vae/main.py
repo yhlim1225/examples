@@ -2,6 +2,8 @@ from __future__ import print_function
 import argparse
 import torch
 import torch.utils.data
+import horovod.torch as hvd
+import time
 from torch import nn, optim
 from torch.nn import functional as F
 from torchvision import datasets, transforms
@@ -25,12 +27,17 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 torch.manual_seed(args.seed)
 
 device = torch.device("cuda" if args.cuda else "cpu")
+hvd.init()
+torch.cuda.set_device(hvd.local_rank())
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+train_dataset = \
+    datasets.MNIST('data-%d' % hvd.rank(), train=True, download=True,
+                   transform=transforms.ToTensor())
+train_sampler = torch.utils.data.distributed.DistributedSampler(
+    train_dataset, num_replicas=hvd.size(), rank=hvd.rank())
 train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('../data', train=True, download=True,
-                   transform=transforms.ToTensor()),
-    batch_size=args.batch_size, shuffle=True, **kwargs)
+    train_dataset, batch_size=args.batch_size, sampler=train_sampler, **kwargs)
 test_loader = torch.utils.data.DataLoader(
     datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
     batch_size=args.batch_size, shuffle=True, **kwargs)
@@ -66,8 +73,13 @@ class VAE(nn.Module):
 
 
 model = VAE().to(device)
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-
+lr_scaler = hvd.size()
+optimizer = optim.Adam(model.parameters(), lr=1e-3 * lr_scaler)
+hvd.broadcast_parameters(model.state_dict(), root_rank=0)
+hvd.broadcast_optimizer_state(optimizer, root_rank=0)
+optimizer = hvd.DistributedOptimizer(optimizer,
+                                     named_parameters=model.named_parameters(),
+                                     op=hvd.Average)
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu, logvar):
@@ -82,10 +94,11 @@ def loss_function(recon_x, x, mu, logvar):
     return BCE + KLD
 
 
-def train(epoch):
+def train(epoch, global_step):
     model.train()
     train_loss = 0
     for batch_idx, (data, _) in enumerate(train_loader):
+        batch_start = time.time()
         data = data.to(device)
         optimizer.zero_grad()
         recon_batch, mu, logvar = model(data)
@@ -93,14 +106,19 @@ def train(epoch):
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
-        if batch_idx % args.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader),
-                loss.item() / len(data)))
-
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-          epoch, train_loss / len(train_loader.dataset)))
+        elapsed_secs = time.time() - batch_start
+        global_step += 1
+        if hvd.rank() == 0:
+            print(" %d %.6f" % (
+                global_step, elapsed_secs))
+#         if batch_idx % args.log_interval == 0:
+#             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+#                 epoch, batch_idx * len(data), len(train_loader.dataset),
+#                 100. * batch_idx / len(train_loader),
+#                 loss.item() / len(data)))
+    return global_step
+#     print('====> Epoch: {} Average loss: {:.4f}'.format(
+#           epoch, train_loss / len(train_loader.dataset)))
 
 
 def test(epoch):
@@ -122,11 +140,12 @@ def test(epoch):
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 if __name__ == "__main__":
+    global_step = 0
     for epoch in range(1, args.epochs + 1):
-        train(epoch)
-        test(epoch)
-        with torch.no_grad():
-            sample = torch.randn(64, 20).to(device)
-            sample = model.decode(sample).cpu()
-            save_image(sample.view(64, 1, 28, 28),
-                       'results/sample_' + str(epoch) + '.png')
+        global_step = train(epoch, global_step)
+#         test(epoch)
+#         with torch.no_grad():
+#             sample = torch.randn(64, 20).to(device)
+#             sample = model.decode(sample).cpu()
+#             save_image(sample.view(64, 1, 28, 28),
+#                        'results/sample_' + str(epoch) + '.png')

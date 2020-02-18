@@ -91,10 +91,6 @@ def batchify(data, bsz):
 
 eval_batch_size = 10
 train_data = batchify(corpus.train, args.batch_size)
-train_sampler = torch.utils.data.distributed.DistributedSampler(
-    train_data, num_replicas=hvd.size(), rank=hvd.rank())
-training_data_loader = torch.utils.data.DataLoader(dataset=train_data, num_workers=1, batch_size=args.batch_size, pin_memory=True ,sampler=train_sampler)
-
 val_data = batchify(corpus.valid, eval_batch_size)
 test_data = batchify(corpus.test, eval_batch_size)
 
@@ -110,12 +106,8 @@ else:
 
 criterion = nn.CrossEntropyLoss()
 lr_scaler = hvd.size()
-optimizer = optim.Adam(model.parameters(), lr=args.lr * lr_scaler)
 hvd.broadcast_parameters(model.state_dict(), root_rank=0)
-hvd.broadcast_optimizer_state(optimizer, root_rank=0)
-optimizer = hvd.DistributedOptimizer(optimizer,
-                                     named_parameters=model.named_parameters(),
-                                     op=hvd.Average)
+
 ###############################################################################
 # Training code
 ###############################################################################
@@ -176,7 +168,7 @@ def train(global_step):
         hidden = model.init_hidden(args.batch_size)
     for batch, i in enumerate(range(0, train_data.size(0) - 1, args.bptt)):
         batch_start = time.time()
-        data, targets = get_batch(training_data_loader, i)
+        data, targets = get_batch(train_data, i)
         # Starting each batch, we detach the hidden state from how it was previously produced.
         # If we didn't, the model would try backpropagating all the way to start of the dataset.
         model.zero_grad()

@@ -6,7 +6,9 @@ import os
 import torch
 import torch.nn as nn
 import torch.onnx
-
+import torch.optim as optim
+import horovod.torch as hvd
+import time
 import data
 import model
 
@@ -19,13 +21,13 @@ parser.add_argument('--emsize', type=int, default=200,
                     help='size of word embeddings')
 parser.add_argument('--nhid', type=int, default=200,
                     help='number of hidden units per layer')
-parser.add_argument('--nlayers', type=int, default=2,
+parser.add_argument('--nlayers', type=int, default=5,
                     help='number of layers')
 parser.add_argument('--lr', type=float, default=20,
                     help='initial learning rate')
 parser.add_argument('--clip', type=float, default=0.25,
                     help='gradient clipping')
-parser.add_argument('--epochs', type=int, default=40,
+parser.add_argument('--epochs', type=int, default=4000,
                     help='upper epoch limit')
 parser.add_argument('--batch_size', type=int, default=20, metavar='N',
                     help='batch size')
@@ -39,7 +41,7 @@ parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
 parser.add_argument('--cuda', action='store_true',
                     help='use CUDA')
-parser.add_argument('--log-interval', type=int, default=200, metavar='N',
+parser.add_argument('--log-interval', type=int, default=1, metavar='N',
                     help='report interval')
 parser.add_argument('--save', type=str, default='model.pt',
                     help='path to save the final model')
@@ -58,7 +60,8 @@ if torch.cuda.is_available():
         print("WARNING: You have a CUDA device, so you should probably run with --cuda")
 
 device = torch.device("cuda" if args.cuda else "cpu")
-
+hvd.init()
+torch.cuda.set_device(hvd.local_rank())
 ###############################################################################
 # Load data
 ###############################################################################
@@ -88,6 +91,10 @@ def batchify(data, bsz):
 
 eval_batch_size = 10
 train_data = batchify(corpus.train, args.batch_size)
+train_sampler = torch.utils.data.distributed.DistributedSampler(
+    train_data, num_replicas=hvd.size(), rank=hvd.rank())
+training_data_loader = torch.utils.data.DataLoader(dataset=train_data, num_workers=1, batch_size=args.batch_size, pin_memory=True ,sampler=train_sampler)
+
 val_data = batchify(corpus.valid, eval_batch_size)
 test_data = batchify(corpus.test, eval_batch_size)
 
@@ -102,7 +109,13 @@ else:
     model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied).to(device)
 
 criterion = nn.CrossEntropyLoss()
-
+lr_scaler = hvd.size()
+optimizer = optim.Adam(model.parameters(), lr=args.lr * lr_scaler)
+hvd.broadcast_parameters(model.state_dict(), root_rank=0)
+hvd.broadcast_optimizer_state(optimizer, root_rank=0)
+optimizer = hvd.DistributedOptimizer(optimizer,
+                                     named_parameters=model.named_parameters(),
+                                     op=hvd.Average)
 ###############################################################################
 # Training code
 ###############################################################################
@@ -153,7 +166,7 @@ def evaluate(data_source):
     return total_loss / (len(data_source) - 1)
 
 
-def train():
+def train(global_step):
     # Turn on training mode which enables dropout.
     model.train()
     total_loss = 0.
@@ -162,7 +175,8 @@ def train():
     if args.model != 'Transformer':
         hidden = model.init_hidden(args.batch_size)
     for batch, i in enumerate(range(0, train_data.size(0) - 1, args.bptt)):
-        data, targets = get_batch(train_data, i)
+        batch_start = time.time()
+        data, targets = get_batch(training_data_loader, i)
         # Starting each batch, we detach the hidden state from how it was previously produced.
         # If we didn't, the model would try backpropagating all the way to start of the dataset.
         model.zero_grad()
@@ -180,17 +194,12 @@ def train():
             p.data.add_(-lr, p.grad.data)
 
         total_loss += loss.item()
-
-        if batch % args.log_interval == 0 and batch > 0:
-            cur_loss = total_loss / args.log_interval
-            elapsed = time.time() - start_time
-            print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
-                    'loss {:5.2f} | ppl {:8.2f}'.format(
-                epoch, batch, len(train_data) // args.bptt, lr,
-                elapsed * 1000 / args.log_interval, cur_loss, math.exp(cur_loss)))
-            total_loss = 0
-            start_time = time.time()
-
+        elapsed_secs = time.time() - batch_start
+        global_step += 1
+        if hvd.rank() == 0:
+          print(" %d %.6f " % (
+               global_step, elapsed_secs))
+    return global_step
 
 def export_onnx(path, batch_size, seq_len):
     print('The model is also exported in ONNX format at {}'.
@@ -207,43 +216,44 @@ best_val_loss = None
 
 # At any point you can hit Ctrl + C to break out of training early.
 try:
+    global_step = 0
     for epoch in range(1, args.epochs+1):
-        epoch_start_time = time.time()
-        train()
-        val_loss = evaluate(val_data)
-        print('-' * 89)
-        print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
-                'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
-                                           val_loss, math.exp(val_loss)))
-        print('-' * 89)
-        # Save the model if the validation loss is the best we've seen so far.
-        if not best_val_loss or val_loss < best_val_loss:
-            with open(args.save, 'wb') as f:
-                torch.save(model, f)
-            best_val_loss = val_loss
-        else:
-            # Anneal the learning rate if no improvement has been seen in the validation dataset.
-            lr /= 4.0
+#         epoch_start_time = time.time()
+        global_step = train(global_step)
+#         val_loss = evaluate(val_data)
+#         print('-' * 89)
+#         print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
+#                 'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
+#                                            val_loss, math.exp(val_loss)))
+#         print('-' * 89)
+#         # Save the model if the validation loss is the best we've seen so far.
+#         if not best_val_loss or val_loss < best_val_loss:
+#             with open(args.save, 'wb') as f:
+#                 torch.save(model, f)
+#             best_val_loss = val_loss
+#         else:
+#             # Anneal the learning rate if no improvement has been seen in the validation dataset.
+#             lr /= 4.0
 except KeyboardInterrupt:
     print('-' * 89)
     print('Exiting from training early')
 
 # Load the best saved model.
-with open(args.save, 'rb') as f:
-    model = torch.load(f)
-    # after load the rnn params are not a continuous chunk of memory
-    # this makes them a continuous chunk, and will speed up forward pass
-    # Currently, only rnn model supports flatten_parameters function.
-    if args.model in ['RNN_TANH', 'RNN_RELU', 'LSTM', 'GRU']:
-        model.rnn.flatten_parameters()
+# with open(args.save, 'rb') as f:
+#     model = torch.load(f)
+#     # after load the rnn params are not a continuous chunk of memory
+#     # this makes them a continuous chunk, and will speed up forward pass
+#     # Currently, only rnn model supports flatten_parameters function.
+#     if args.model in ['RNN_TANH', 'RNN_RELU', 'LSTM', 'GRU']:
+#         model.rnn.flatten_parameters()
 
-# Run on test data.
-test_loss = evaluate(test_data)
-print('=' * 89)
-print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
-    test_loss, math.exp(test_loss)))
-print('=' * 89)
+# # Run on test data.
+# test_loss = evaluate(test_data)
+# print('=' * 89)
+# print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
+#     test_loss, math.exp(test_loss)))
+# print('=' * 89)
 
-if len(args.onnx_export) > 0:
-    # Export the model in ONNX format.
-    export_onnx(args.onnx_export, batch_size=1, seq_len=args.bptt)
+# if len(args.onnx_export) > 0:
+#     # Export the model in ONNX format.
+#     export_onnx(args.onnx_export, batch_size=1, seq_len=args.bptt)

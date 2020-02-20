@@ -23,7 +23,7 @@ parser.add_argument('--threads', type=int, default=1, help='number of threads fo
 parser.add_argument('--seed', type=int, default=123, help='random seed to use. Default=123')
 opt = parser.parse_args()
 
-print(opt)
+#print(opt)
 
 if opt.cuda and not torch.cuda.is_available():
     raise Exception("No GPU found, please run without --cuda")
@@ -34,7 +34,7 @@ device = torch.device("cuda" if opt.cuda else "cpu")
 hvd.init()
 torch.cuda.set_device(hvd.local_rank())
 
-print('===> Loading datasets')
+#print('===> Loading datasets')
 train_set = get_training_set(opt.upscale_factor)
 # test_set = get_test_set(opt.upscale_factor)
 train_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -42,7 +42,7 @@ train_sampler = torch.utils.data.distributed.DistributedSampler(
 training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, pin_memory=True ,sampler=train_sampler)
 # testing_data_loader = DataLoader(dataset=test_set, num_workers=opt.threads, batch_size=opt.testBatchSize, shuffle=False)
 
-print('===> Building model')
+#print('===> Building model')
 model = Net(upscale_factor=opt.upscale_factor).to(device)
 criterion = nn.MSELoss()
 lr_scaler = hvd.size()

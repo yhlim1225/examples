@@ -227,8 +227,8 @@ try:
 #             # Anneal the learning rate if no improvement has been seen in the validation dataset.
 #             lr /= 4.0
 except KeyboardInterrupt:
-    print('-' * 89)
-    print('Exiting from training early')
+    #print('-' * 89)
+    #print('Exiting from training early')
 
 # Load the best saved model.
 # with open(args.save, 'rb') as f:

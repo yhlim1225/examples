@@ -34,7 +34,7 @@ parser.add_argument('--manualSeed', type=int, help='manual seed')
 parser.add_argument('--classes', default='bedroom', help='comma separated list of classes for the lsun data set')
 
 opt = parser.parse_args()
-print(opt)
+#print(opt)
 
 try:
     os.makedirs(opt.outf)
@@ -43,14 +43,14 @@ except OSError:
 
 if opt.manualSeed is None:
     opt.manualSeed = random.randint(1, 10000)
-print("Random Seed: ", opt.manualSeed)
+#print("Random Seed: ", opt.manualSeed)
 random.seed(opt.manualSeed)
 torch.manual_seed(opt.manualSeed)
 
 cudnn.benchmark = True
 
 if torch.cuda.is_available() and not opt.cuda:
-    print("WARNING: You have a CUDA device, so you should probably run with --cuda")
+    #print("WARNING: You have a CUDA device, so you should probably run with --cuda")
 
 if opt.dataset in ['imagenet', 'folder', 'lfw']:
     # folder dataset
@@ -155,7 +155,7 @@ netG = Generator(ngpu).to(device)
 netG.apply(weights_init)
 if opt.netG != '':
     netG.load_state_dict(torch.load(opt.netG))
-print(netG)
+#print(netG)
 
 
 class Discriminator(nn.Module):
@@ -196,7 +196,7 @@ netD = Discriminator(ngpu).to(device)
 netD.apply(weights_init)
 if opt.netD != '':
     netD.load_state_dict(torch.load(opt.netD))
-print(netD)
+#print(netD)
 
 criterion = nn.BCELoss()
 

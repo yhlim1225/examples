@@ -188,10 +188,10 @@ def train(global_step):
         total_loss += loss.item()
         elapsed_secs = time.time() - batch_start
         global_step += 1
-        if hvd.rank() == 0:
+        if hvd.rank() == 0 and global_step >= 1000:
           print(" %d %.6f " % (
                global_step, elapsed_secs))
-        if global_step >= 600:
+        if global_step >= 1600:
             break
     return global_step
 
@@ -214,7 +214,7 @@ try:
     for epoch in range(1, args.epochs+1):
 #         epoch_start_time = time.time()
         global_step = train(global_step)
-        if global_step >= 600:
+        if global_step >= 1600:
             break
 #         val_loss = evaluate(val_data)
 #         print('-' * 89)

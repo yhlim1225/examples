@@ -108,10 +108,10 @@ def train(epoch, global_step):
         optimizer.step()
         elapsed_secs = time.time() - batch_start
         global_step += 1
-        if hvd.rank() == 0:
+        if hvd.rank() == 0 and global_step >= 1000:
             print(" %d %.6f" % (
                 global_step, elapsed_secs))
-        if global_step >= 600:
+        if global_step >= 1600:
             break
 #         if batch_idx % args.log_interval == 0:
 #             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     global_step = 0
     for epoch in range(1, args.epochs + 1):
         global_step = train(epoch, global_step)
-        if global_step >= 600:
+        if global_step >= 1600:
             break
 #         test(epoch)
 #         with torch.no_grad():

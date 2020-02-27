@@ -66,10 +66,10 @@ def train(epoch, global_step):
         optimizer.step()
         elapsed_secs = time.time() - batch_start
         global_step += 1
-        if hvd.rank() == 0:
+        if hvd.rank() == 0 and global_step >= 1000:
             print(" %d %.6f" %(
                 global_step, elapsed_secs))
-        if global_step >= 600:
+        if global_step >= 1600:
             break
     return global_step
 #         print("===> Epoch[{}]({}/{}): Loss: {:.4f}".format(epoch, iteration, len(training_data_loader), loss.item()))
@@ -97,7 +97,7 @@ def train(epoch, global_step):
 global_step = 0
 for epoch in range(1, opt.nEpochs + 1):
     global_step = train(epoch, global_step)
-    if global_step >= 600:
+    if global_step >= 1600:
         break
 #     test()
 #     checkpoint(epoch)

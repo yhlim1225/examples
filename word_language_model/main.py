@@ -191,6 +191,8 @@ def train(global_step):
         if hvd.rank() == 0:
           print(" %d %.6f " % (
                global_step, elapsed_secs))
+        if global_step >= 600:
+            break
     return global_step
 
 def export_onnx(path, batch_size, seq_len):
@@ -212,6 +214,8 @@ try:
     for epoch in range(1, args.epochs+1):
 #         epoch_start_time = time.time()
         global_step = train(global_step)
+        if global_step >= 600:
+            break
 #         val_loss = evaluate(val_data)
 #         print('-' * 89)
 #         print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '

@@ -250,6 +250,10 @@ for epoch in range(opt.niter):
         global_step += 1
         print(" %d %.6f" %(
             global_step, elapsed_secs))
+        if global_step >= 600:
+            break
+    if global_step >= 600:
+        break
 #         print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f'
 #               % (epoch, opt.niter, i, len(dataloader),
 #                  errD.item(), errG.item(), D_x, D_G_z1, D_G_z2))

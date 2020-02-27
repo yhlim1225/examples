@@ -69,6 +69,8 @@ def train(epoch, global_step):
         if hvd.rank() == 0:
             print(" %d %.6f" %(
                 global_step, elapsed_secs))
+        if global_step >= 600:
+            break
     return global_step
 #         print("===> Epoch[{}]({}/{}): Loss: {:.4f}".format(epoch, iteration, len(training_data_loader), loss.item()))
 
@@ -94,6 +96,8 @@ def train(epoch, global_step):
 #     print("Checkpoint saved to {}".format(model_out_path))
 global_step = 0
 for epoch in range(1, opt.nEpochs + 1):
-    train(epoch, global_step)
+    global_step = train(epoch, global_step)
+    if global_step >= 600:
+        break
 #     test()
 #     checkpoint(epoch)

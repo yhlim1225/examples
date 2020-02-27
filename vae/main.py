@@ -111,6 +111,8 @@ def train(epoch, global_step):
         if hvd.rank() == 0:
             print(" %d %.6f" % (
                 global_step, elapsed_secs))
+        if global_step >= 600:
+            break
 #         if batch_idx % args.log_interval == 0:
 #             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
 #                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -143,6 +145,8 @@ if __name__ == "__main__":
     global_step = 0
     for epoch in range(1, args.epochs + 1):
         global_step = train(epoch, global_step)
+        if global_step >= 600:
+            break
 #         test(epoch)
 #         with torch.no_grad():
 #             sample = torch.randn(64, 20).to(device)
